@@ -1,0 +1,12 @@
+# Ignorar a pasta de logs
+logs/
+
+# Ignorar arquivos específicos
+QuickStart.md
+Brush_SYSTEM.md
+
+# Outros arquivos Python que geralmente não são necessários
+__pycache__/
+*.pyc
+*.log
+*.sh
