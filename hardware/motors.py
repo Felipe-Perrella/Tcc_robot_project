@@ -106,7 +106,7 @@ class L298NController:
     def _apply_speed(self):
         """Aplica velocidade atual via PWM"""
         self.left_pwm.ChangeDutyCycle(self.current_speed)
-        self.right_pwm.ChangeDutyCycle(self.current_speed)
+        self.right_pwm.ChangeDutyCycle(self.current_speed * 0,97) # Ajuste fino para alinhamento para o Motor Direito
     
     def cleanup(self):
         """Limpa recursos GPIO"""

@@ -16,11 +16,12 @@ from .motors import L298NController
 from .brushes import BrushController
 from .sensors import UltrasonicSensor
 from .camera import CameraVision
+from .servo import ServoController
 
-# Define o que é exportado ao usar "from hardware import *"
 __all__ = [
     'L298NController',
-    'BrushController',
+    'BrushController', 
     'UltrasonicSensor',
-    'CameraVision'
+    'CameraVision',
+    'ServoController'
 ]
