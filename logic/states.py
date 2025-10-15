@@ -1,7 +1,7 @@
 """
 logic/states.py
 ===============
-Define os estados possíveis do robô de limpeza de placas solares
+Define os estados possíveis do robô
 """
 
 from enum import Enum
@@ -9,80 +9,43 @@ from enum import Enum
 
 class RobotState(Enum):
     """
-    Estados da máquina de estados do robô.
-    
-    O robô opera em 2 estados principais:
-    - SEARCHING: Procurando placa solar (girando)
-    - MOVING_TO_TARGET: Sobre a placa (escaneando/limpando)
-    
-    Fluxo típico:
-        SEARCHING → (sensor detecta placa) → MOVING_TO_TARGET
-                                                    ↓
-                                            (a cada 15s verifica visão)
-                                                    ↓
-                                            (se sai da placa)
-                                                    ↓
-        SEARCHING ← ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘
+    Estados do robô de limpeza de placas solares.
     """
     
-    SEARCHING = "searching"
-    """
-    Estado: Procurando placa solar
+    # Procurando placa solar pela primeira vez (gira no lugar)
+    INITIAL_SEARCH = "initial_search"
     
-    Comportamento:
-    - Robô gira no próprio eixo
-    - Sensor ultrassônico procura placa embaixo
-    - Vassouras: OFF (economizar energia)
-    - Velocidade: SEARCH_SPEED (50%)
-    
-    Transição para MOVING_TO_TARGET quando:
-    - Sensor ultrassônico ≤ PANEL_DISTANCE (15cm)
-    """
-    
+    # Sobre a placa, escaneando e limpando
     MOVING_TO_TARGET = "moving_to_target"
-    """
-    Estado: Sobre a placa (escaneando ou limpando)
     
-    Comportamento:
-    - Robô anda para frente sobre a placa
-    - Sensor ultrassônico confirma presença da placa
-    - A cada 15s: verifica visão computacional
-    - Vassouras: ON se detectou sujeira, OFF se não detectou
-    - Velocidade: 
-      - Sem sujeira: SCAN_SPEED (40%)
-      - Com sujeira: SCAN_SPEED // 3 (13% - devagar para limpar)
+    # Saiu da placa, executando manobra para voltar
+    REPOSITIONING = "repositioning"
     
-    Transição para SEARCHING quando:
-    - Sensor ultrassônico > PANEL_DISTANCE (saiu da placa)
-    """
-    
+    # Robô parado (emergência ou fim)
     STOPPED = "stopped"
+
+
+class TurnDirection(Enum):
     """
-    Estado: Robô parado
+    Direção da próxima curva quando sai da placa.
     
-    Comportamento:
-    - Todos os motores parados
-    - Vassouras: OFF
-    - Usado apenas ao encerrar programa
+    Alterna entre esquerda e direita.
     """
+    LEFT = "left"
+    RIGHT = "right"
 
 
-# Mensagens amigáveis para cada estado (opcional, para logs)
-STATE_MESSAGES = {
-    RobotState.SEARCHING: "🔍 Procurando placa solar...",
-    RobotState.MOVING_TO_TARGET: "🤖 Escaneando/limpando placa",
-    RobotState.STOPPED: "🛑 Robô parado"
-}
-
-
-def get_state_message(state: RobotState) -> str:
+class RepositionStep(Enum):
     """
-    Retorna mensagem amigável para um estado.
+    Passos da manobra quando perde a placa.
     
-    Args:
-        state: Estado do robô
-        
-    Returns:
-        str: Mensagem descritiva do estado
+    Sequência:
+    1. TURNING_90: Vira 90° (esquerda ou direita)
+    2. MOVING_SIDEWAYS: Anda largura do robô
+    3. TURNING_90_BACK: Vira 90° de volta
+    4. MOVING_FORWARD: Anda reto procurando placa novamente
     """
-    return STATE_MESSAGES.get(state, f"Estado: {state.value}")
+    TURNING_90 = "turning_90"             # Virando 90°
+    MOVING_SIDEWAYS = "moving_sideways"   # Andando para o lado (largura do robô)
+    TURNING_90_BACK = "turning_90_back"   # Virando 90° de volta
+    MOVING_FORWARD = "moving_forward"     # Andando para frente procurando placa

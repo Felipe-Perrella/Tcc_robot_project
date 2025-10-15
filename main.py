@@ -1,36 +1,63 @@
 """
-main.py - Ponto de entrada do robô (versão modular)
-====================================================
+main.py - Ponto de entrada do robô de limpeza de placas solares
+================================================================
 
-Este é o arquivo principal simplificado.
-As classes foram movidas para módulos separados.
+Sistema autônomo que:
+1. Detecta placa solar embaixo (sensor ultrassônico)
+2. Escaneia placa procurando sujeira (câmera - a cada X segundos)
+3. Liga vassouras apenas quando detecta sujeira
+4. Gira procurando novas placas quando sai da placa atual
 
-Estrutura:
-    hardware/ - Classes de hardware (motores, sensores)
-    logic/    - Classes de lógica (estados, robô)
-    config.py - Configurações
+Estrutura modular:
+    hardware/ - Componentes físicos (motores, sensores, câmera)
+    logic/    - Lógica de controle (estados, coordenação)
+    config.py - Configurações centralizadas
 """
 
-# Importar classes dos módulos
 from logic import Robot
-from config import MOTOR_PINS, BRUSH_MOTOR_PINS, ULTRASONIC_PINS
-from config import SAFE_DISTANCE, SEARCH_SPEED, MOVE_SPEED
+from config import (
+    MOTOR_PINS, 
+    BRUSH_MOTOR_PINS,
+    SERVO_PIN,
+    ULTRASONIC_PINS,
+    PANEL_DISTANCE,
+    SEARCH_SPEED,
+    SCAN_SPEED,
+    TURN_90_TIME,
+    SEARCH_FORWARD_TIME
+)
 
 
 def main():
     """
     Função principal do programa.
     
-    Cria e inicia o robô com as configurações do config.py
+    Cria robô com configurações do config.py e inicia operação.
     """
+    print("\n" + "="*60)
+    print("ROBÔ AUTÔNOMO DE LIMPEZA DE PLACAS SOLARES")
+    print("="*60)
+    
+    # Validar configuração
+    from config import validate_config
+    errors = validate_config()
+    if errors:
+        print("\nERROS NA CONFIGURAÇÃO:")
+        for error in errors:
+            print(f"  - {error}")
+        print("\nCorreja os erros em config.py antes de continuar.")
+        return
+    
     # Criar robô com configurações
     robot = Robot(
         motor_pins=MOTOR_PINS,
         brush_pins=BRUSH_MOTOR_PINS,
+        servo_pin=SERVO_PIN,
         ultrasonic_pins=ULTRASONIC_PINS,
-        safe_distance=SAFE_DISTANCE,
+        panel_distance=PANEL_DISTANCE,
         search_speed=SEARCH_SPEED,
-        move_speed=MOVE_SPEED
+        scan_speed=SCAN_SPEED,
+        vision_check_interval=15  # Verificar visão a cada 15 segundos
     )
     
     # Iniciar robô (entra no loop principal)
@@ -43,5 +70,15 @@ if __name__ == "__main__":
     
     Uso:
         python3 main.py
+    
+    Para parar:
+        Pressione Ctrl+C
     """
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(f"\nERRO CRÍTICO: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        print("\nPrograma finalizado.")

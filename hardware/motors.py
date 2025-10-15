@@ -31,7 +31,7 @@ class L298NController:
         self.pins = motor_pins
         
         # Configurar GPIO
-        GPIO.setmode(GPIO.BCM)
+        GPIO.setmode(GPIO.BOARD)
         GPIO.setwarnings(False)
         
         # Configurar pinos como saída

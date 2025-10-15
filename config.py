@@ -2,6 +2,13 @@
 
 # ==================== CONFIGURAÇÃO DOS PINOS GPIO ====================
 
+# for GPIO numbering, choose BCM  
+# GPIO.setmode(GPIO.BCM)  
+  
+# or, for pin numbering, choose BOARD  
+#GPIO.setmode(GPIO.BOARD)  
+
+
 # Pinos do L298N para controle dos motores
 MOTOR_PINS = {
     'left_motor': {
@@ -21,6 +28,9 @@ ULTRASONIC_PINS = {
     'trigger': 24,
     'echo': 23
 }
+
+# Pino do servo que levanta/abaixa as vassouras
+SERVO_PIN = 7  # GPIO 4  (4 - bcm | 7 - board)
 
 # Pinos dos motores das vassouras
 BRUSH_MOTOR_PINS = {
@@ -44,8 +54,12 @@ MAX_DETECTION_DISTANCE = 400    # Distância máxima do sensor
 
 # Velocidades (0-100)
 SEARCH_SPEED = 50               # Velocidade ao procurar placa (girando)
+MOVE_SPEED = 60                 # Velocidade ao mover em direção ao alvo (VERIFICAR)
 SCAN_SPEED = 40                 # Velocidade ao escanear placa procurando sujeira
 BRUSH_SPEED = 80                # Velocidade das vassouras quando limpando
+
+# Distância segura para evitar obstáculos (em centímetros)
+SAFE_DISTANCE = 20              # Ajuste conforme necessário (VERIFICAR)
 
 # Tempos (em segundos)
 MAIN_LOOP_DELAY = 0.1       # Delay entre iterações do loop principal
