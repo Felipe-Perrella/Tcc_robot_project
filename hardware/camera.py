@@ -1,172 +1,318 @@
 """
 hardware/camera.py
 ==================
-Interface para visão computacional
-
-IMPORTANTE: Este é um STUB (modelo básico).
-Você deve implementar seu próprio algoritmo de detecção aqui.
+Interface para visão computacional com modelo treinado
 """
 
+import cv2
+import numpy as np
 import time
+
+# Importações TensorFlow (só se modelo disponível)
+try:
+    from tensorflow.keras.models import load_model
+    from tensorflow.keras.applications.vgg16 import preprocess_input
+    from tensorflow.keras.preprocessing.image import img_to_array
+    TENSORFLOW_AVAILABLE = True
+except ImportError:
+    TENSORFLOW_AVAILABLE = False
+    print("[CAMERA] TensorFlow não instalado. Modo STUB ativado.")
 
 
 class CameraVision:
     """
-    Interface para sistema de visão computacional.
+    Sistema de visão computacional usando Deep Learning.
     
-    Detecta sujeira em placas solares usando câmera.
-    
-    VOCÊ DEVE IMPLEMENTAR:
-    - Captura de imagens
-    - Processamento (filtros, thresholds, etc)
-    - Modelo de ML (se aplicável)
-    - Lógica de detecção
+    Classifica placas solares como limpas ou sujas usando
+    modelo CNN treinado (VGG16 transfer learning).
     """
     
-    def __init__(self):
+    def __init__(self, model_path='classificador_placa_solar.h5', 
+                 image_size=(64, 64), confidence_threshold=0.7):
         """
         Inicializa sistema de visão.
         
-        IMPLEMENTE AQUI:
-        - Inicialização da câmera (picamera2 ou opencv)
-        - Carregamento de modelo (se usar ML)
-        - Configurações de processamento
+        Args:
+            model_path: Caminho do modelo .h5
+            image_size: Tamanho de entrada da rede (64, 64)
+            confidence_threshold: Confiança mínima (padrão: 0.7 = 70%)
         """
         print("[CAMERA] Inicializando visão computacional...")
         
-        # TODO: Inicializar sua câmera
-        # Exemplo com picamera2:
-        # from picamera2 import Picamera2
-        # self.camera = Picamera2()
-        # config = self.camera.create_still_configuration(main={"size": (640, 480)})
-        # self.camera.configure(config)
-        # self.camera.start()
+        self.model_path = model_path
+        self.image_size = image_size
+        self.confidence_threshold = confidence_threshold
+        self.model = None
+        self.camera_ready = False
         
-        # TODO: Carregar modelo (se usar)
-        # self.model = load_your_model()
+        # Verificar se TensorFlow está disponível
+        if not TENSORFLOW_AVAILABLE:
+            print("[CAMERA] TensorFlow não disponível!")
+            print("[CAMERA] Instale com: pip install tensorflow")
+            print("[CAMERA] Modo STUB ativado (sempre retorna False)")
+            return
         
-        self.camera_ready = False  # Mude para True quando implementar
+        # Tentar carregar modelo
+        try:
+            self.model = load_model(model_path)
+            self.camera_ready = True
+            print(f"[CAMERA] Modelo carregado: {model_path}")
+            print(f"[CAMERA] Tamanho de entrada: {image_size}")
+            print(f"[CAMERA] Threshold de confiança: {confidence_threshold * 100}%")
         
-        if self.camera_ready:
-            print("[CAMERA] Pronta para detecção")
-        else:
-            print("[CAMERA] STUB MODE - retornará sempre False")
-            print("[CAMERA] IMPLEMENTE seu algoritmo em hardware/camera.py")
-    
-    def detect_target(self):
-        """
-        Detecta se há sujeira na imagem atual.
+        except FileNotFoundError:
+            print(f"[CAMERA] ERRO: Arquivo '{model_path}' não encontrado!")
+            print(f"[CAMERA] Certifique-se que o modelo está no diretório do projeto")
+            print("[CAMERA] Modo STUB ativado (sempre retorna False)")
         
-        Este método é chamado a cada X segundos (configurável em config.py).
-        
-        IMPLEMENTAR:
-        1. Capturar frame da câmera
-        2. Processar imagem (filtros, normalização, etc)
-        3. Aplicar seu algoritmo de detecção
-        4. Retornar resultado
-        
-        Returns:
-            bool: True se DETECTOU SUJEIRA
-                  False se PLACA LIMPA
-        
-        Exemplo de implementação:
-
-        """
-        
-        # STUB: Sempre retorna False enquanto não implementado
-        if not self.camera_ready:
-            # Modo simulação para testes (retorna False)
-            return False
-        
-        # TODO: IMPLEMENTAR SEU ALGORITMO AQUI
-        
-        # Exemplo básico:
-        # frame = self.capture_frame()
-        # result = self.process_frame(frame)
-        # return result
-        
-        return False
+        except Exception as e:
+            print(f"[CAMERA] ERRO ao carregar modelo: {e}")
+            print("[CAMERA] Modo STUB ativado (sempre retorna False)")
     
     def capture_frame(self):
         """
-        Captura um frame da câmera.
-        
-        IMPLEMENTE AQUI a captura de imagem.
+        Captura frame da câmera.
         
         Returns:
-            numpy.ndarray: frame capturado
+            numpy.ndarray: Frame capturado ou None se erro
         """
-        # TODO: Implementar
-        # return self.camera.capture_array()
-        pass
-    
-    def process_frame(self, frame):
-        """
-        Processa frame e detecta sujeira.
+        try:
+            cap = cv2.VideoCapture(0)
+            
+            if not cap.isOpened():
+                print("[CAMERA] Erro: Não conseguiu abrir câmera")
+                return None
+            
+            # Aguardar estabilização
+            time.sleep(1)
+            
+            ret, frame = cap.read()
+            cap.release()
+            
+            if not ret:
+                print("[CAMERA] Falha ao capturar frame")
+                return None
+            
+            return frame
         
-        IMPLEMENTE AQUI seu algoritmo de processamento.
+        except Exception as e:
+            print(f"[CAMERA] Erro na captura: {e}")
+            return None
+    
+    def preprocess_frame(self, frame):
+        """
+        Preprocessa frame para entrada na rede.
         
         Args:
-            frame: frame capturado
+            frame: Frame capturado (numpy array BGR)
             
         Returns:
-            bool: True se detectou sujeira
+            numpy.ndarray: Frame preprocessado para o modelo
         """
-        # TODO: Implementar seu algoritmo
-        # Exemplos de técnicas:
-        # - Threshold de cor
-        # - Edge detection
-        # - Template matching
-        # - Machine Learning (CNN, YOLO, etc)
-        # - Análise de textura
-        pass
+        # Redimensionar para tamanho da rede
+        img_resized = cv2.resize(frame, self.image_size)
+        
+        # Converter BGR (OpenCV) para RGB (Keras)
+        img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
+        
+        # Converter para array
+        img_array = img_to_array(img_rgb)
+        
+        # Preprocessamento VGG16
+        img_array = preprocess_input(img_array)
+        
+        # Adicionar batch dimension (1, 64, 64, 3)
+        img_batch = np.expand_dims(img_array, axis=0)
+        
+        return img_batch
+    
+    def detect_target(self):
+        """
+        Detecta se há sujeira na placa solar.
+        
+        ESTE É O MÉTODO CHAMADO PELO ROBÔ A CADA 15 SEGUNDOS!
+        
+        Fluxo:
+        1. Captura frame da câmera
+        2. Preprocessa imagem
+        3. Passa pelo modelo neural
+        4. Interpreta resultado
+        5. Aplica threshold de confiança
+        
+        Returns:
+            bool: True se DETECTOU SUJEIRA (Dusty)
+                  False se PLACA LIMPA (Clean) ou erro
+        """
+        # Modo STUB: modelo não disponível
+        if not self.camera_ready or self.model is None:
+            return False
+        
+        try:
+            # 1. CAPTURAR FRAME
+            frame = self.capture_frame()
+            if frame is None:
+                print("[CAMERA] Frame não capturado, retornando False")
+                return False
+            
+            # 2. PREPROCESSAR
+            img_batch = self.preprocess_frame(frame)
+            
+            # 3. FAZER PREDIÇÃO
+            prediction = self.model.predict(img_batch, verbose=0)
+            
+            # 4. INTERPRETAR RESULTADO
+            # prediction = [[prob_clean, prob_dusty]]
+            prob_clean = prediction[0][0]
+            prob_dusty = prediction[0][1]
+            
+            # Índice da classe com maior probabilidade
+            predicted_class = np.argmax(prediction[0])
+            confidence = np.max(prediction[0])
+            
+            # Classes: 0 = Clean, 1 = Dusty
+            is_dusty = (predicted_class == 1)
+            
+            # 5. APLICAR THRESHOLD DE CONFIANÇA
+            if confidence < self.confidence_threshold:
+                print(f"[CAMERA] Confiança baixa ({confidence:.2f}), "
+                      f"considerando limpo por segurança")
+                return False
+            
+            # 6. LOG DO RESULTADO
+            if is_dusty:
+                print(f"[CAMERA] >>> SUJEIRA DETECTADA! <<<")
+                print(f"[CAMERA] Confiança: {confidence:.2f} ({confidence*100:.0f}%)")
+                print(f"[CAMERA] Probabilidades: Clean={prob_clean:.2f}, Dusty={prob_dusty:.2f}")
+            else:
+                print(f"[CAMERA] Placa LIMPA")
+                print(f"[CAMERA] Confiança: {confidence:.2f} ({confidence*100:.0f}%)")
+                print(f"[CAMERA] Probabilidades: Clean={prob_clean:.2f}, Dusty={prob_dusty:.2f}")
+            
+            return is_dusty
+        
+        except Exception as e:
+            print(f"[CAMERA] ERRO na detecção: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
     
     def cleanup(self):
         """Limpa recursos da câmera"""
-        if self.camera_ready:
-            # TODO: Parar câmera
-            # self.camera.stop()
-            pass
-        
         print("[CAMERA] Recursos liberados")
 
 
-# GUIA DE IMPLEMENTAÇÃO
-# =====================
-#
-# 1. ESCOLHER BIBLIOTECA:
-#    - picamera2 (recomendado para Pi Camera)
-#    - opencv (para USB camera)
-#
-# 2. INSTALAR DEPENDÊNCIAS:
-#    pip install picamera2  # ou opencv-python
-#
-# 3. IMPLEMENTAR detect_target():
-#    Opções:
-#    
-#    A) Detecção simples (threshold de cor):
-#       - Converter para HSV
-#       - Definir range de cores da sujeira
-#       - Contar pixels no range
-#       - Se > threshold: sujeira detectada
-#    
-#    B) Machine Learning:
-#       - Treinar modelo CNN
-#       - Classificação binária: limpo/sujo
-#       - Carregar modelo no __init__
-#       - Usar em detect_target()
-#    
-#    C) Template matching:
-#       - Ter templates de sujeira comum
-#       - Buscar padrões similares na imagem
-#
-# 4. TESTAR ISOLADAMENTE:
-#    python3 -c "from hardware.camera import CameraVision; c = CameraVision(); print(c.detect_target())"
-#
-# 5. AJUSTAR THRESHOLD:
-#    Encontre o melhor valor de threshold testando em placas reais
-#
-# 6. OTIMIZAR:
-#    - Reduzir resolução se processamento lento
-#    - Usar ROI (region of interest)
-#    - Cache de resultados
+# ==================== TESTE ISOLADO ====================
+if __name__ == "__main__":
+    """
+    Teste do sistema de visão isoladamente.
+    
+    Uso:
+        cd ~/robot_project
+        python3 hardware/camera.py
+    """
+    import sys
+    
+    print("\n" + "="*60)
+    print("    TESTE DO SISTEMA DE VISÃO COMPUTACIONAL")
+    print("="*60)
+    
+    # Verificar se TensorFlow disponível
+    if not TENSORFLOW_AVAILABLE:
+        print("\nERRO: TensorFlow não está instalado!")
+        print("\nPara instalar:")
+        print("  pip install tensorflow")
+        print("  ou")
+        print("  pip install tensorflow-lite (para Raspberry Pi)")
+        sys.exit(1)
+    
+    # Criar instância
+    print("\nInicializando câmera...")
+    camera = CameraVision(
+        model_path='classificador_placa_solar.h5',
+        image_size=(64, 64),
+        confidence_threshold=0.7
+    )
+    
+    # Verificar se modelo carregou
+    if not camera.camera_ready:
+        print("\n" + "="*60)
+        print("ERRO: Modelo não carregado!")
+        print("="*60)
+        print("\nVerifique:")
+        print("  1. Arquivo 'classificador_placa_solar.h5' existe?")
+        print("  2. Está no diretório correto?")
+        print("  3. Modelo foi treinado corretamente?")
+        print("\nCaminho esperado:")
+        print(f"  {camera.model_path}")
+        sys.exit(1)
+    
+    # Menu de testes
+    print("\n" + "-"*60)
+    print("OPÇÕES DE TESTE:")
+    print("-"*60)
+    print("1. Teste único")
+    print("2. Teste contínuo (5 vezes)")
+    print("3. Teste contínuo infinito (Ctrl+C para parar)")
+    print("-"*60)
+    
+    escolha = input("\nEscolha uma opção (1-3): ").strip()
+    
+    try:
+        if escolha == '1':
+            # Teste único
+            print("\n>>> Executando teste único...\n")
+            result = camera.detect_target()
+            
+            print("\n" + "="*60)
+            if result:
+                print("RESULTADO FINAL: SUJEIRA DETECTADA")
+            else:
+                print("RESULTADO FINAL: PLACA LIMPA")
+            print("="*60)
+        
+        elif escolha == '2':
+            # 5 testes
+            print("\n>>> Executando 5 testes...\n")
+            resultados = []
+            
+            for i in range(5):
+                print(f"\n--- Teste {i+1}/5 ---")
+                result = camera.detect_target()
+                resultados.append(result)
+                
+                if i < 4:  # Não aguardar no último
+                    print("\nAguardando 2 segundos...")
+                    time.sleep(2)
+            
+            # Resumo
+            print("\n" + "="*60)
+            print("RESUMO DOS TESTES:")
+            print("="*60)
+            sujeira_count = sum(resultados)
+            limpo_count = len(resultados) - sujeira_count
+            print(f"Sujeira detectada: {sujeira_count}/5 vezes")
+            print(f"Placa limpa: {limpo_count}/5 vezes")
+            print("="*60)
+        
+        elif escolha == '3':
+            # Teste infinito
+            print("\n>>> Teste contínuo (Pressione Ctrl+C para parar)...\n")
+            contador = 0
+            
+            while True:
+                contador += 1
+                print(f"\n--- Teste #{contador} ---")
+                result = camera.detect_target()
+                
+                print("\nAguardando 3 segundos...")
+                time.sleep(3)
+        
+        else:
+            print("\nOpção inválida!")
+    
+    except KeyboardInterrupt:
+        print("\n\nTeste interrompido pelo usuário!")
+    
+    finally:
+        camera.cleanup()
+        print("\n=== TESTE CONCLUÍDO ===\n")
