@@ -4,6 +4,7 @@ logs/
 # Ignorar arquivos específicos
 QuickStart.md
 Brush_SYSTEM.md
+modelotucadas5.keras
 
 # Outros arquivos Python que geralmente não são necessários
 __pycache__/

@@ -1,318 +1,440 @@
 """
 hardware/camera.py
 ==================
-Interface para visão computacional com modelo treinado
+Interface para visão computacional
+Suporta: .keras, .h5 (TensorFlow) e .tflite (TFLite Runtime)
 """
 
 import cv2
 import numpy as np
 import time
+import os
 
-# Importações TensorFlow (só se modelo disponível)
+# Tentar importar TensorFlow Lite
+TFLITE_AVAILABLE = False
 try:
-    from tensorflow.keras.models import load_model
-    from tensorflow.keras.applications.vgg16 import preprocess_input
-    from tensorflow.keras.preprocessing.image import img_to_array
+    import tflite_runtime.interpreter as tflite
+    TFLITE_AVAILABLE = True
+    TFLITE_MODE = "runtime"
+    print("[CAMERA] TFLite Runtime disponível")
+except ImportError:
+    try:
+        import tensorflow as tf
+        tflite = tf.lite
+        TFLITE_AVAILABLE = True
+        TFLITE_MODE = "tensorflow"
+        print("[CAMERA] TensorFlow disponível")
+    except ImportError:
+        print("[CAMERA] TensorFlow não disponível")
+
+# Tentar importar TensorFlow para modelos Keras
+TENSORFLOW_AVAILABLE = False
+try:
+    import tensorflow as tf
     TENSORFLOW_AVAILABLE = True
 except ImportError:
-    TENSORFLOW_AVAILABLE = False
-    print("[CAMERA] TensorFlow não instalado. Modo STUB ativado.")
+    print("[CAMERA] TensorFlow não disponível para carregar .keras")
 
 
 class CameraVision:
     """
-    Sistema de visão computacional usando Deep Learning.
+    Sistema de visão computacional.
     
-    Classifica placas solares como limpas ou sujas usando
-    modelo CNN treinado (VGG16 transfer learning).
+    Suporta 3 formatos:
+    1. .tflite (recomendado para RPi - mais rápido)
+    2. .keras (novo formato Keras 3)
+    3. .h5 (formato antigo Keras)
     """
     
-    def __init__(self, model_path='classificador_placa_solar.h5', 
+    def __init__(self, model_path='classificador_placa_solar', 
                  image_size=(64, 64), confidence_threshold=0.7):
         """
         Inicializa sistema de visão.
         
         Args:
-            model_path: Caminho do modelo .h5
-            image_size: Tamanho de entrada da rede (64, 64)
-            confidence_threshold: Confiança mínima (padrão: 0.7 = 70%)
+            model_path: Caminho do modelo (sem extensão ou com .keras/.h5/.tflite)
+            image_size: Tamanho entrada (64, 64)
+            confidence_threshold: Confiança mínima (0.7 = 70%)
         """
         print("[CAMERA] Inicializando visão computacional...")
         
-        self.model_path = model_path
         self.image_size = image_size
         self.confidence_threshold = confidence_threshold
-        self.model = None
         self.camera_ready = False
         
-        # Verificar se TensorFlow está disponível
-        if not TENSORFLOW_AVAILABLE:
-            print("[CAMERA] TensorFlow não disponível!")
-            print("[CAMERA] Instale com: pip install tensorflow")
-            print("[CAMERA] Modo STUB ativado (sempre retorna False)")
-            return
+        # Detectar tipo de modelo e carregar
+        self.model_type = None
+        self.model = None
+        self.interpreter = None
         
         # Tentar carregar modelo
-        try:
-            self.model = load_model(model_path)
-            self.camera_ready = True
-            print(f"[CAMERA] Modelo carregado: {model_path}")
-            print(f"[CAMERA] Tamanho de entrada: {image_size}")
-            print(f"[CAMERA] Threshold de confiança: {confidence_threshold * 100}%")
+        self._load_model(model_path)
+    
+    def _load_model(self, model_path):
+        """
+        Carrega modelo automaticamente detectando formato.
         
-        except FileNotFoundError:
-            print(f"[CAMERA] ERRO: Arquivo '{model_path}' não encontrado!")
-            print(f"[CAMERA] Certifique-se que o modelo está no diretório do projeto")
-            print("[CAMERA] Modo STUB ativado (sempre retorna False)")
+        Prioridade:
+        1. .tflite (mais rápido)
+        2. .keras (formato atual)
+        3. .h5 (formato antigo)
+        """
+        # Lista de extensões para tentar
+        extensions = ['.tflite', '.keras', '.h5', '']
+        
+        # Tentar cada extensão
+        for ext in extensions:
+            test_path = model_path if model_path.endswith(ext) else model_path + ext
+            
+            if os.path.exists(test_path):
+                print(f"[CAMERA] Encontrado: {test_path}")
+                
+                if test_path.endswith('.tflite'):
+                    return self._load_tflite(test_path)
+                elif test_path.endswith('.keras') or test_path.endswith('.h5'):
+                    return self._load_keras(test_path)
+        
+        # Nenhum modelo encontrado
+        print(f"[CAMERA] ERRO: Modelo não encontrado!")
+        print(f"[CAMERA] Procurado em:")
+        for ext in extensions:
+            print(f"  - {model_path}{ext}")
+        print("[CAMERA] Modo STUB ativado")
+    
+    def _load_tflite(self, model_path):
+        """Carrega modelo TFLite"""
+        if not TFLITE_AVAILABLE:
+            print("[CAMERA] TFLite não disponível")
+            return False
+        
+        try:
+            self.interpreter = tflite.Interpreter(model_path=model_path)
+            self.interpreter.allocate_tensors()
+            
+            self.input_details = self.interpreter.get_input_details()
+            self.output_details = self.interpreter.get_output_details()
+            
+            self.model_type = 'tflite'
+            self.camera_ready = True
+            
+            print(f"[CAMERA] Modelo TFLite carregado")
+            print(f"[CAMERA] Input: {self.input_details[0]['shape']}")
+            print(f"[CAMERA] Output: {self.output_details[0]['shape']}")
+            return True
         
         except Exception as e:
-            print(f"[CAMERA] ERRO ao carregar modelo: {e}")
-            print("[CAMERA] Modo STUB ativado (sempre retorna False)")
+            print(f"[CAMERA] Erro ao carregar TFLite: {e}")
+            return False
+    
+    def _load_keras(self, model_path):
+        """Carrega modelo Keras (.keras ou .h5)"""
+        if not TENSORFLOW_AVAILABLE:
+            print("[CAMERA] TensorFlow não disponível para .keras/.h5")
+            print("[CAMERA] Instale: pip3 install tensorflow")
+            return False
+        
+        try:
+            self.model = tf.keras.models.load_model(model_path)
+            self.model_type = 'keras'
+            self.camera_ready = True
+            
+            print(f"[CAMERA] Modelo Keras carregado")
+            print(f"[CAMERA] Input: {self.model.input_shape}")
+            print(f"[CAMERA] Output: {self.model.output_shape}")
+            return True
+        
+        except Exception as e:
+            print(f"[CAMERA] Erro ao carregar Keras: {e}")
+            return False
     
     def capture_frame(self):
-        """
-        Captura frame da câmera.
-        
-        Returns:
-            numpy.ndarray: Frame capturado ou None se erro
-        """
+        """Captura frame da câmera"""
         try:
             cap = cv2.VideoCapture(0)
             
             if not cap.isOpened():
-                print("[CAMERA] Erro: Não conseguiu abrir câmera")
+                print("[CAMERA] Câmera não disponível")
                 return None
             
-            # Aguardar estabilização
-            time.sleep(1)
-            
+            time.sleep(1)  # Estabilizar
             ret, frame = cap.read()
             cap.release()
             
             if not ret:
-                print("[CAMERA] Falha ao capturar frame")
+                print("[CAMERA] Falha ao capturar")
                 return None
             
             return frame
         
         except Exception as e:
-            print(f"[CAMERA] Erro na captura: {e}")
+            print(f"[CAMERA] Erro: {e}")
             return None
     
     def preprocess_frame(self, frame):
         """
-        Preprocessa frame para entrada na rede.
+        Preprocessa frame.
         
         Args:
-            frame: Frame capturado (numpy array BGR)
+            frame: Frame BGR
             
         Returns:
-            numpy.ndarray: Frame preprocessado para o modelo
+            numpy.ndarray: Tensor preprocessado
         """
-        # Redimensionar para tamanho da rede
-        img_resized = cv2.resize(frame, self.image_size)
+        # Redimensionar
+        img = cv2.resize(frame, self.image_size)
         
-        # Converter BGR (OpenCV) para RGB (Keras)
-        img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
+        # BGR → RGB
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         
-        # Converter para array
-        img_array = img_to_array(img_rgb)
+        # Normalizar [0, 255] → [0, 1]
+        img = img.astype(np.float32) / 255.0
         
-        # Preprocessamento VGG16
-        img_array = preprocess_input(img_array)
+        # VGG16 preprocessing (subtrair média ImageNet)
+        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+        std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+        img = (img - mean) / std
         
-        # Adicionar batch dimension (1, 64, 64, 3)
-        img_batch = np.expand_dims(img_array, axis=0)
+        # Batch dimension (1, 64, 64, 3)
+        img = np.expand_dims(img, axis=0)
         
-        return img_batch
+        return img.astype(np.float32)
     
     def detect_target(self):
         """
-        Detecta se há sujeira na placa solar.
+        Detecta sujeira na placa solar.
         
-        ESTE É O MÉTODO CHAMADO PELO ROBÔ A CADA 15 SEGUNDOS!
-        
-        Fluxo:
-        1. Captura frame da câmera
-        2. Preprocessa imagem
-        3. Passa pelo modelo neural
-        4. Interpreta resultado
-        5. Aplica threshold de confiança
+        CHAMADO PELO ROBÔ A CADA 15 SEGUNDOS!
         
         Returns:
-            bool: True se DETECTOU SUJEIRA (Dusty)
-                  False se PLACA LIMPA (Clean) ou erro
+            bool: True = SUJEIRA, False = LIMPA
         """
-        # Modo STUB: modelo não disponível
-        if not self.camera_ready or self.model is None:
+        if not self.camera_ready:
             return False
         
         try:
-            # 1. CAPTURAR FRAME
+            # 1. Capturar
             frame = self.capture_frame()
             if frame is None:
-                print("[CAMERA] Frame não capturado, retornando False")
                 return False
             
-            # 2. PREPROCESSAR
-            img_batch = self.preprocess_frame(frame)
+            # 2. Preprocessar
+            input_data = self.preprocess_frame(frame)
             
-            # 3. FAZER PREDIÇÃO
-            prediction = self.model.predict(img_batch, verbose=0)
+            # 3. Inferência (depende do tipo)
+            if self.model_type == 'tflite':
+                prediction = self._predict_tflite(input_data)
+            elif self.model_type == 'keras':
+                prediction = self._predict_keras(input_data)
+            else:
+                return False
             
-            # 4. INTERPRETAR RESULTADO
-            # prediction = [[prob_clean, prob_dusty]]
+            # 4. Interpretar
             prob_clean = prediction[0][0]
             prob_dusty = prediction[0][1]
             
-            # Índice da classe com maior probabilidade
             predicted_class = np.argmax(prediction[0])
             confidence = np.max(prediction[0])
             
-            # Classes: 0 = Clean, 1 = Dusty
+            # 0 = Clean, 1 = Dusty
             is_dusty = (predicted_class == 1)
             
-            # 5. APLICAR THRESHOLD DE CONFIANÇA
+            # 5. Threshold
             if confidence < self.confidence_threshold:
-                print(f"[CAMERA] Confiança baixa ({confidence:.2f}), "
-                      f"considerando limpo por segurança")
+                print(f"[CAMERA] Confiança baixa ({confidence:.2f})")
                 return False
             
-            # 6. LOG DO RESULTADO
+            # 6. Log
             if is_dusty:
-                print(f"[CAMERA] >>> SUJEIRA DETECTADA! <<<")
+                print(f"[CAMERA] >>> SUJEIRA! <<<")
                 print(f"[CAMERA] Confiança: {confidence:.2f} ({confidence*100:.0f}%)")
-                print(f"[CAMERA] Probabilidades: Clean={prob_clean:.2f}, Dusty={prob_dusty:.2f}")
             else:
-                print(f"[CAMERA] Placa LIMPA")
+                print(f"[CAMERA] Placa limpa")
                 print(f"[CAMERA] Confiança: {confidence:.2f} ({confidence*100:.0f}%)")
-                print(f"[CAMERA] Probabilidades: Clean={prob_clean:.2f}, Dusty={prob_dusty:.2f}")
+            
+            print(f"[CAMERA] Probs: Clean={prob_clean:.2f}, Dusty={prob_dusty:.2f}")
             
             return is_dusty
         
         except Exception as e:
-            print(f"[CAMERA] ERRO na detecção: {e}")
+            print(f"[CAMERA] Erro: {e}")
             import traceback
             traceback.print_exc()
             return False
     
+    def _predict_tflite(self, input_data):
+        """Inferência TFLite"""
+        self.interpreter.set_tensor(self.input_details[0]['index'], input_data)
+        self.interpreter.invoke()
+        output = self.interpreter.get_tensor(self.output_details[0]['index'])
+        return output
+    
+    def _predict_keras(self, input_data):
+        """Inferência Keras"""
+        output = self.model.predict(input_data, verbose=0)
+        return output
+    
     def cleanup(self):
-        """Limpa recursos da câmera"""
+        """Limpa recursos"""
         print("[CAMERA] Recursos liberados")
 
 
-# ==================== TESTE ISOLADO ====================
-if __name__ == "__main__":
+# ==================== CONVERSÃO ====================
+def converter_keras_para_tflite(modelo_keras, saida_tflite):
     """
-    Teste do sistema de visão isoladamente.
+    Converte .keras → .tflite
     
-    Uso:
-        cd ~/robot_project
-        python3 hardware/camera.py
+    Args:
+        modelo_keras: Caminho .keras ou .h5
+        saida_tflite: Caminho saída .tflite
     """
+    if not TENSORFLOW_AVAILABLE:
+        print("ERRO: TensorFlow necessário para conversão")
+        print("Instale: pip3 install tensorflow")
+        return False
+    
+    try:
+        print(f"\n{'='*60}")
+        print(f"CONVERSÃO: {modelo_keras} → {saida_tflite}")
+        print('='*60)
+        
+        print(f"\n1. Carregando {modelo_keras}...")
+        model = tf.keras.models.load_model(modelo_keras)
+        print("   OK")
+        
+        print("\n2. Criando conversor...")
+        converter = tf.lite.TFLiteConverter.from_keras_model(model)
+        print("   OK")
+        
+        print("\n3. Convertendo para TFLite...")
+        tflite_model = converter.convert()
+        print("   OK")
+        
+        print(f"\n4. Salvando {saida_tflite}...")
+        with open(saida_tflite, 'wb') as f:
+            f.write(tflite_model)
+        print("   OK")
+        
+        # Comparar tamanhos
+        tamanho_keras = os.path.getsize(modelo_keras) / 1024 / 1024
+        tamanho_tflite = os.path.getsize(saida_tflite) / 1024 / 1024
+        reducao = ((tamanho_keras - tamanho_tflite) / tamanho_keras * 100)
+        
+        print(f"\n{'='*60}")
+        print("CONVERSÃO CONCLUÍDA!")
+        print('='*60)
+        print(f"Tamanho original: {tamanho_keras:.2f} MB")
+        print(f"Tamanho TFLite:   {tamanho_tflite:.2f} MB")
+        print(f"Redução:          {reducao:.1f}%")
+        print('='*60)
+        
+        return True
+    
+    except Exception as e:
+        print(f"\nERRO na conversão: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+# ==================== TESTE ====================
+if __name__ == "__main__":
     import sys
     
+    # Comando: convert
+    if len(sys.argv) > 1 and sys.argv[1] == 'convert':
+        print("\n" + "="*60)
+        print("    CONVERSOR .keras → .tflite")
+        print("="*60 + "\n")
+        
+        # Entrada
+        if len(sys.argv) > 2:
+            modelo_keras = sys.argv[2]
+        else:
+            modelo_keras = 'classificador_placa_solar.keras'
+        
+        # Saída
+        if len(sys.argv) > 3:
+            saida_tflite = sys.argv[3]
+        else:
+            saida_tflite = modelo_keras.replace('.keras', '.tflite').replace('.h5', '.tflite')
+        
+        # Converter
+        if converter_keras_para_tflite(modelo_keras, saida_tflite):
+            print(f"\nAgora teste com:")
+            print(f"  python3 hardware/camera.py")
+        
+        sys.exit(0)
+    
+    # Teste normal
     print("\n" + "="*60)
-    print("    TESTE DO SISTEMA DE VISÃO COMPUTACIONAL")
+    print("    TESTE DO SISTEMA DE VISÃO")
     print("="*60)
     
-    # Verificar se TensorFlow disponível
-    if not TENSORFLOW_AVAILABLE:
-        print("\nERRO: TensorFlow não está instalado!")
-        print("\nPara instalar:")
-        print("  pip install tensorflow")
-        print("  ou")
-        print("  pip install tensorflow-lite (para Raspberry Pi)")
-        sys.exit(1)
-    
-    # Criar instância
-    print("\nInicializando câmera...")
+    print("\nInicializando...")
     camera = CameraVision(
-        model_path='classificador_placa_solar.h5',
+        model_path='classificador_placa_solar',  # Busca .tflite, .keras, .h5
         image_size=(64, 64),
         confidence_threshold=0.7
     )
     
-    # Verificar se modelo carregou
     if not camera.camera_ready:
         print("\n" + "="*60)
         print("ERRO: Modelo não carregado!")
         print("="*60)
-        print("\nVerifique:")
-        print("  1. Arquivo 'classificador_placa_solar.h5' existe?")
-        print("  2. Está no diretório correto?")
-        print("  3. Modelo foi treinado corretamente?")
-        print("\nCaminho esperado:")
-        print(f"  {camera.model_path}")
+        print("\nArquivos procurados:")
+        print("  - classificador_placa_solar.tflite")
+        print("  - classificador_placa_solar.keras")
+        print("  - classificador_placa_solar.h5")
+        print("\nSe tem .keras, converta:")
+        print("  python3 hardware/camera.py convert classificador_placa_solar.keras")
         sys.exit(1)
     
-    # Menu de testes
+    print(f"\nModelo tipo: {camera.model_type}")
+    print(f"Threshold: {camera.confidence_threshold}")
+    
+    # Menu
     print("\n" + "-"*60)
-    print("OPÇÕES DE TESTE:")
-    print("-"*60)
     print("1. Teste único")
-    print("2. Teste contínuo (5 vezes)")
-    print("3. Teste contínuo infinito (Ctrl+C para parar)")
+    print("2. Teste contínuo (5x)")
+    print("3. Teste infinito (Ctrl+C para parar)")
     print("-"*60)
     
-    escolha = input("\nEscolha uma opção (1-3): ").strip()
+    escolha = input("\nEscolha (1-3): ").strip()
     
     try:
         if escolha == '1':
-            # Teste único
-            print("\n>>> Executando teste único...\n")
+            print("\n>>> Teste único...\n")
             result = camera.detect_target()
-            
             print("\n" + "="*60)
-            if result:
-                print("RESULTADO FINAL: SUJEIRA DETECTADA")
-            else:
-                print("RESULTADO FINAL: PLACA LIMPA")
+            print("RESULTADO:", "SUJEIRA" if result else "LIMPA")
             print("="*60)
         
         elif escolha == '2':
-            # 5 testes
-            print("\n>>> Executando 5 testes...\n")
+            print("\n>>> 5 testes...\n")
             resultados = []
-            
             for i in range(5):
-                print(f"\n--- Teste {i+1}/5 ---")
-                result = camera.detect_target()
-                resultados.append(result)
-                
-                if i < 4:  # Não aguardar no último
-                    print("\nAguardando 2 segundos...")
+                print(f"\n--- {i+1}/5 ---")
+                resultados.append(camera.detect_target())
+                if i < 4:
                     time.sleep(2)
             
-            # Resumo
             print("\n" + "="*60)
-            print("RESUMO DOS TESTES:")
-            print("="*60)
-            sujeira_count = sum(resultados)
-            limpo_count = len(resultados) - sujeira_count
-            print(f"Sujeira detectada: {sujeira_count}/5 vezes")
-            print(f"Placa limpa: {limpo_count}/5 vezes")
+            print(f"Sujeira: {sum(resultados)}/5")
+            print(f"Limpa: {5-sum(resultados)}/5")
             print("="*60)
         
         elif escolha == '3':
-            # Teste infinito
-            print("\n>>> Teste contínuo (Pressione Ctrl+C para parar)...\n")
-            contador = 0
-            
+            print("\n>>> Contínuo...\n")
+            n = 0
             while True:
-                contador += 1
-                print(f"\n--- Teste #{contador} ---")
-                result = camera.detect_target()
-                
-                print("\nAguardando 3 segundos...")
+                n += 1
+                print(f"\n--- Teste #{n} ---")
+                camera.detect_target()
                 time.sleep(3)
-        
-        else:
-            print("\nOpção inválida!")
     
     except KeyboardInterrupt:
-        print("\n\nTeste interrompido pelo usuário!")
+        print("\n\nInterrompido!")
     
     finally:
         camera.cleanup()
-        print("\n=== TESTE CONCLUÍDO ===\n")
+        print("\n=== FIM ===\n")

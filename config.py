@@ -12,37 +12,37 @@
 # Pinos do L298N para controle dos motores
 MOTOR_PINS = {
     'left_motor': {
-        'in1': 18,  # Direção motor esquerdo
-        'in2': 19,  # Direção motor esquerdo
-        'ena': 12   # PWM velocidade motor esquerdo
+        'in1': 22,  # Direção motor esquerdo
+        'in2': 27,  # Direção motor esquerdo
+        'ena': 17   # PWM velocidade motor esquerdo
     },
     'right_motor': {
-        'in3': 20,  # Direção motor direito
-        'in4': 21,  # Direção motor direito
-        'enb': 13   # PWM velocidade motor direito
+        'in3': 23,  # Direção motor direito
+        'in4': 24,  # Direção motor direito
+        'enb': 25   # PWM velocidade motor direito
     }
 }
 
 # Pinos do sensor ultrassônico HC-SR04
 ULTRASONIC_PINS = {
-    'trigger': 24,
-    'echo': 23
+    'trigger': 6,
+    'echo': 5
 }
 
 # Pino do servo que levanta/abaixa as vassouras
-SERVO_PIN = 7  # GPIO 4  (4 - bcm | 7 - board)
+SERVO_PIN = 12  # GPIO 4  (4 - bcm | 7 - board)
 
 # Pinos dos motores das vassouras
 BRUSH_MOTOR_PINS = {
     'brush_1': {
-        'in1': 5,   # Direção vassoura 1
-        'in2': 6,   # Direção vassoura 1
-        'enable': 16  # PWM velocidade vassoura 1
+        'in1': 26,   # Direção vassoura 1
+        'in2': 19,   # Direção vassoura 1
+        'enable': 13  # PWM velocidade vassoura 1
     },
     'brush_2': {
-        'in1': 22,  # Direção vassoura 2
-        'in2': 27,  # Direção vassoura 2
-        'enable': 17  # PWM velocidade vassoura 2
+        'in1': 21,  # Direção vassoura 2
+        'in2': 20,  # Direção vassoura 2
+        'enable': 16  # PWM velocidade vassoura 2
     }
 }
 
