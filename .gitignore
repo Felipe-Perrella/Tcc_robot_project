@@ -5,6 +5,7 @@ logs/
 QuickStart.md
 Brush_SYSTEM.md
 modelotucadas5.keras
+conversor.py
 
 # Outros arquivos Python que geralmente não são necessários
 __pycache__/
