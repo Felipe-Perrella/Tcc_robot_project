@@ -21,10 +21,11 @@ from config import (
     SERVO_PIN,
     ULTRASONIC_PINS,
     PANEL_DISTANCE,
+    PANEL_LOST_THRESHOLD,
     SEARCH_SPEED,
     SCAN_SPEED,
     TURN_90_TIME,
-    SEARCH_FORWARD_TIME
+    SIDEWAYS_TIME
 )
 
 
@@ -57,8 +58,13 @@ def main():
         panel_distance=PANEL_DISTANCE,
         search_speed=SEARCH_SPEED,
         scan_speed=SCAN_SPEED,
-        vision_check_interval=15  # Verificar visão a cada 15 segundos
+        vision_check_interval=15,      # Verificar visão a cada 15s
+        turn_90_time=TURN_90_TIME,     # Tempo para virar 90°
+        sideways_time=SIDEWAYS_TIME    # Tempo andando lateral (largura robô)
     )
+    
+    # Configurar filtro anti-interferência
+    robot.panel_lost_threshold = PANEL_LOST_THRESHOLD
     
     # Iniciar robô (entra no loop principal)
     robot.start()

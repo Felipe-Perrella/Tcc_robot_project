@@ -12,12 +12,12 @@
 # Pinos do L298N para controle dos motores
 MOTOR_PINS = {
     'left_motor': {
-        'in1': 22,  # Direção motor esquerdo
+        'in1': 22,  # Direção motor esquerdo frente
         'in2': 27,  # Direção motor esquerdo
         'ena': 17   # PWM velocidade motor esquerdo
     },
     'right_motor': {
-        'in3': 23,  # Direção motor direito
+        'in3': 23,  # Direção motor direito frente
         'in4': 24,  # Direção motor direito
         'enb': 25   # PWM velocidade motor direito
     }
@@ -30,17 +30,17 @@ ULTRASONIC_PINS = {
 }
 
 # Pino do servo que levanta/abaixa as vassouras
-SERVO_PIN = 12  # GPIO 4  (4 - bcm | 7 - board)
+SERVO_PIN = 12  # GPIO 12 (BCM)
 
 # Pinos dos motores das vassouras
 BRUSH_MOTOR_PINS = {
     'brush_1': {
         'in1': 26,   # Direção vassoura 1
-        'in2': 19,   # Direção vassoura 1
+        'in2': 19,   # Direção vassoura 1 frente
         'enable': 13  # PWM velocidade vassoura 1
     },
     'brush_2': {
-        'in1': 21,  # Direção vassoura 2
+        'in1': 21,  # Direção vassoura 2 frente
         'in2': 20,  # Direção vassoura 2
         'enable': 16  # PWM velocidade vassoura 2
     }
@@ -52,20 +52,22 @@ BRUSH_MOTOR_PINS = {
 PANEL_DISTANCE = 15             # Distância máxima para considerar "sobre a placa"
 MAX_DETECTION_DISTANCE = 400    # Distância máxima do sensor
 
+# Filtro anti-interferência do sensor
+PANEL_LOST_THRESHOLD = 3        # Número de leituras consecutivas sem placa para confirmar perda
+                                # 3 = mais estável (ignora interferências)
+                                # 1 = mais responsivo (reage imediatamente)
+
 # Velocidades (0-100)
 SEARCH_SPEED = 50               # Velocidade ao procurar placa (girando)
-MOVE_SPEED = 60                 # Velocidade ao mover em direção ao alvo (VERIFICAR)
 SCAN_SPEED = 40                 # Velocidade ao escanear placa procurando sujeira
 BRUSH_SPEED = 80                # Velocidade das vassouras quando limpando
 
-# Distância segura para evitar obstáculos (em centímetros)
-SAFE_DISTANCE = 20              # Ajuste conforme necessário (VERIFICAR)
-
 # Tempos (em segundos)
 MAIN_LOOP_DELAY = 0.1       # Delay entre iterações do loop principal
-BACKWARD_TIME = 0.5         # Tempo de recuo ao evitar obstáculo
-TURN_TIME = 0.8             # Tempo de giro ao evitar obstáculo
-STOP_PAUSE = 0.2            # Pausa antes de manobras
+
+# Tempos para manobra quando perde a placa
+TURN_90_TIME = 2.5          # Tempo para virar 90 graus
+SIDEWAYS_TIME = 0.7         # Tempo andando para o lado (largura do robô)
 
 # PWM
 PWM_FREQUENCY = 1000        # Frequência do PWM para os motores
@@ -75,7 +77,7 @@ PWM_FREQUENCY = 1000        # Frequência do PWM para os motores
 # Controle das vassouras
 BRUSH_CONFIG = {
     'auto_activate': True,      # Ativar automaticamente ao detectar alvo
-    'speed': 80,                # Velocidade das vassouras (0-100)
+    'speed': 50,                # Velocidade das vassouras (0-100)
     'activation_delay': 0.2     # Delay antes de ativar (segundos)
 }
 
@@ -116,6 +118,7 @@ def validate_config():
     for brush in BRUSH_MOTOR_PINS.values():
         all_pins.extend(brush.values())
     all_pins.extend(ULTRASONIC_PINS.values())
+    all_pins.append(SERVO_PIN)
     
     if len(all_pins) != len(set(all_pins)):
         errors.append("ERRO: Pinos duplicados detectados!")
@@ -123,12 +126,16 @@ def validate_config():
     # Verificar valores de velocidade
     if not (0 <= SEARCH_SPEED <= 100):
         errors.append("ERRO: SEARCH_SPEED deve estar entre 0 e 100")
-    if not (0 <= MOVE_SPEED <= 100):
-        errors.append("ERRO: MOVE_SPEED deve estar entre 0 e 100")
+    if not (0 <= SCAN_SPEED <= 100):
+        errors.append("ERRO: SCAN_SPEED deve estar entre 0 e 100")
     
     # Verificar distâncias
-    if SAFE_DISTANCE <= 0:
-        errors.append("ERRO: SAFE_DISTANCE deve ser maior que 0")
+    if PANEL_DISTANCE <= 0:
+        errors.append("ERRO: PANEL_DISTANCE deve ser maior que 0")
+    
+    # Verificar threshold
+    if PANEL_LOST_THRESHOLD < 1:
+        errors.append("ERRO: PANEL_LOST_THRESHOLD deve ser >= 1")
     
     return errors
 
@@ -147,5 +154,11 @@ if __name__ == "__main__":
         print(f"  Motor Direito: IN3={MOTOR_PINS['right_motor']['in3']}, "
               f"IN4={MOTOR_PINS['right_motor']['in4']}, "
               f"ENB={MOTOR_PINS['right_motor']['enb']}")
+        print(f"  Servo: PIN={SERVO_PIN}")
         print(f"  Ultrassônico: TRIG={ULTRASONIC_PINS['trigger']}, "
               f"ECHO={ULTRASONIC_PINS['echo']}")
+        print(f"\nParâmetros:")
+        print(f"  Distância da placa: {PANEL_DISTANCE}cm")
+        print(f"  Filtro anti-interferência: {PANEL_LOST_THRESHOLD} leituras")
+        print(f"  Velocidade busca: {SEARCH_SPEED}%")
+        print(f"  Velocidade escaneamento: {SCAN_SPEED}%")

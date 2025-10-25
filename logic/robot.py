@@ -5,6 +5,7 @@ Classe principal que coordena todo o robô
 """
 
 import time
+from turtle import distance
 from .states import RobotState, TurnDirection, RepositionStep
 from hardware import L298NController, BrushController, UltrasonicSensor, CameraVision
 
@@ -25,15 +26,27 @@ class Robot:
     
     def __init__(self, motor_pins, brush_pins, servo_pin, ultrasonic_pins, 
                  panel_distance=15, search_speed=50, scan_speed=40,
-                 vision_check_interval=15, turn_90_time=0.5, sideways_time=1.0):
+                 vision_check_interval=15, turn_90_time=2.6, sideways_time=0.7):
         """
         Inicializa o robô completo.
+
+        Args:
+            motor_pins: dict com pinos dos motores de locomoção
+            brush_pins: dict com pinos das vassouras
+            servo_pin: pino GPIO do servo (levanta/abaixa vassouras)
+            ultrasonic_pins: dict com pinos do sensor {'trigger': pin, 'echo': pin}
+            panel_distance: distância máxima para considerar sobre placa (cm)
+            search_speed: velocidade ao procurar placa (0-100)
+            scan_speed: velocidade ao escanear placa (0-100)
+            vision_check_interval: intervalo entre verificações de visão (s)
+            turn_90_time: tempo para virar 90 graus (s)
+            sideways_time: tempo andando para o lado (s)
         """
         print("Inicializando robô de limpeza de placas solares...")
         
         # Inicializar componentes
         self.motors = L298NController(motor_pins)
-        self.brushes = BrushController(brush_pins, servo_pin, brush_speed=80)
+        self.brushes = BrushController(brush_pins, servo_pin, brush_speed=50)
         self.ultrasonic = UltrasonicSensor(
             ultrasonic_pins['trigger'], 
             ultrasonic_pins['echo']
@@ -55,10 +68,15 @@ class Robot:
         self.sideways_time = sideways_time
         
         # Estado da manobra de reposicionamento
-        self.reposition_step = RepositionStep.TURNING_90
+        self.reposition_step = RepositionStep.FIRST_TURN_90
         self.turn_direction = TurnDirection.LEFT  # Começa virando à esquerda
         self.step_start_time = 0
+        self.scenario_b_active = False
         
+        # NOVO: Contador de falhas para filtrar interferências
+        self.panel_lost_count = 0        
+        self.panel_lost_threshold = 3  # Precisa perder 3x seguidas para confirmar
+
         # Controle de intervalo de visão
         self.vision_check_interval = vision_check_interval
         self.last_vision_check = 0
@@ -70,6 +88,7 @@ class Robot:
         print(f"  - Velocidade de escaneamento: {scan_speed}%")
         print(f"  - Tempo de curva 90°: {turn_90_time}s")
         print(f"  - Tempo lateral (largura robô): {sideways_time}s")
+        print(f"  - Filtro anti-interferência: {self.panel_lost_threshold} leituras")
     
     def start(self):
         """Inicia o robô e entra no loop principal"""
@@ -140,17 +159,36 @@ class Robot:
     def _state_moving_on_panel(self, on_panel, distance):
         """
         MOVING_TO_TARGET: Sobre a placa, andando reto e limpando.
-        """
-        if not on_panel:
-            # Perdeu a placa! Iniciar manobra
-            print("\n>>> PERDEU A PLACA! Iniciando manobra...")
-            self.motors.stop()
-            time.sleep(0.2)
-            self.state = RobotState.REPOSITIONING
-            self.reposition_step = RepositionStep.TURNING_90
-            self.step_start_time = time.time()
-            return
         
+    Usa contador de falhas para confirmar perda da placa.
+        """
+    
+        # Sistema anti-interferência: contar falhas consecutivas
+        if not on_panel:
+            self.panel_lost_count += 1
+        
+            if self.panel_lost_count >= self.panel_lost_threshold:
+                # Confirmado: perdeu placa (3x seguidas)
+                print(f"\n>>> PLACA PERDIDA (confirmado após {self.panel_lost_count} leituras)!")
+                self.motors.stop()
+                time.sleep(0.2)
+                self.state = RobotState.REPOSITIONING
+                self.reposition_step = RepositionStep.FIRST_TURN_90
+                self.step_start_time = time.time()
+                self.scenario_b_active = False
+                self.panel_lost_count = 0  # Resetar contador
+                return
+            else:
+                # Interferência provável - continuar normalmente
+                if self.panel_lost_count == 1:
+                    print(f"[AVISO] Possível interferência ({self.panel_lost_count}/{self.panel_lost_threshold}) - continuando...")
+        else:
+            # Placa detectada - resetar contador de falhas
+            if self.panel_lost_count > 0:
+                print(f"[OK] Placa detectada novamente (resetando contador: {self.panel_lost_count}→0)")
+            self.panel_lost_count = 0
+            
+
         # Está sobre a placa: verificar visão periodicamente
         current_time = time.time()
         time_since_last_check = current_time - self.last_vision_check
@@ -179,107 +217,234 @@ class Robot:
         self.motors.set_speed(speed)
         self.motors.move_forward()
         
-        # Status
-        brush_status = "[LIMPANDO]" if self.brushes.is_running() else "[OFF]"
-        dirt_status = "[SUJEIRA]" if self.dirt_detected else "[Limpo]"
-        time_until_next = max(0, self.vision_check_interval - time_since_last_check)
-        
+        # Status - Preparar variáveis de status (definir ANTES de usar)
+        brush = "[LIMPANDO]" if self.brushes.is_running() else "[OFF]"
+        dirt = "[SUJEIRA]" if self.dirt_detected else "[Limpo]"
+        next_check = max(0, self.vision_check_interval - time_since_last_check)
+        fail_status = f" | Falhas:{self.panel_lost_count}/{self.panel_lost_threshold}" if self.panel_lost_count > 0 else ""
+
+        print(f"[PLACA] {dirt} | {brush} | "
+            f"Vel: {speed:3d}% | Próx: {next_check:.1f}s | "
+            f"Dist: {distance:5.1f}cm{fail_status}")
+        '''
         print(f"[PLACA] {dirt_status} | {brush_status} | "
               f"Vel: {speed:3d}% | Próx: {time_until_next:.1f}s | "
               f"Dist: {distance:5.1f}cm")
-    
+        '''
+              
     def _state_repositioning(self, on_panel, distance):
         """
-        REPOSITIONING: Manobra quando perde a placa.
+        Estado REPOSITIONING: Manobra quando perde a placa.
         
-        Sequência:
+        Este método implementa dois cenários possíveis:
+        
+        CENÁRIO A (ainda na placa após virar 90°):
+        ========================================
         1. Vira 90° (esquerda ou direita)
-        2. Anda largura do robô
-        3. Vira 90° de volta
-        4. Anda reto procurando placa
+        2. Verifica sensor → DETECTA placa
+        3. Anda largura do robô
+        4. Vira 90° mesma direção
+        5. INVERTE status (próxima vez vira outro lado)
+        6. Volta para MOVING_TO_TARGET
         
-        Se encontrar placa em qualquer momento: volta para MOVING_TO_TARGET
-        Se não encontrar após andar reto: inverte direção e repete
+        CENÁRIO B (saiu completamente da placa):
+        ========================================
+        1. Vira 90° (esquerda ou direita)
+        2. Verifica sensor → NÃO detecta placa
+        3. Vira 180° de volta (inverte lado)
+        4. Anda largura do robô
+        5. Vira 90° mesma direção do último giro
+        6. MANTÉM status (próxima vez tenta mesmo lado)
+        7. Volta para MOVING_TO_TARGET
+        
+        Args:
+            on_panel: True se sensor detecta placa (distância <= 15cm)
+            distance: Distância medida pelo sensor (cm)
         """
+        
+        # Obter tempo decorrido desde início do passo atual
         current_time = time.time()
         elapsed = current_time - self.step_start_time
-        
-        # Se encontrou placa durante manobra: voltar para limpeza
-        if on_panel:
-            print(f"\n>>> PLACA DETECTADA durante manobra! Voltando à limpeza...")
-            self.motors.stop()
-            time.sleep(0.2)
-            self.state = RobotState.MOVING_TO_TARGET
-            self.last_vision_check = 0
-            return
-        
-        # Nome da direção para display
+
+        # Nome da direção para logs
         dir_name = "ESQUERDA" if self.turn_direction == TurnDirection.LEFT else "DIREITA"
-        
-        # Status
-        print(f"[MANOBRA] Passo: {self.reposition_step.value:20s} | "
+
+        # Log de status
+        print(f"[MANOBRA] {self.reposition_step.value:20s} | "
               f"Dir: {dir_name:8s} | Tempo: {elapsed:.1f}s | "
+              f"Placa: {'SIM' if on_panel else 'NÃO':3s} | "
               f"Dist: {distance:5.1f}cm")
-        
-        # Máquina de estados da manobra
-        if self.reposition_step == RepositionStep.TURNING_90:
-            # Passo 1: Virando 90°
+
+        # =========================================================================
+        # PASSO 1: FIRST_TURN_90
+        # Primeiro giro de 90° (esquerda ou direita conforme status)
+        # =========================================================================
+        if self.reposition_step == RepositionStep.FIRST_TURN_90:
+            # Executar giro
             self._execute_turn(self.turn_direction)
-            
+
+            # Verificar se tempo decorrido >= tempo necessário
             if elapsed >= self.turn_90_time:
-                print(f"[MANOBRA] Curva 90° concluída ({dir_name})")
+                print(f"[MANOBRA] Primeiro giro 90° concluído ({dir_name})")
                 self.motors.stop()
-                time.sleep(0.1)
+                time.sleep(0.3)  # Pausa para estabilizar
+
+                # Próximo passo: verificar se detecta placa
+                self.reposition_step = RepositionStep.CHECK_PANEL
+                self.step_start_time = time.time()
+
+        # =========================================================================
+        # PASSO 2: CHECK_PANEL
+        # Verificar se ainda detecta placa após virar
+        # =========================================================================
+        elif self.reposition_step == RepositionStep.CHECK_PANEL:
+            # Aguarda um momento para leitura estável do sensor
+            if elapsed >= 0.3:
+
+                # -------------------------------------------------------------
+                # CENÁRIO A: Ainda detecta placa!
+                # -------------------------------------------------------------
+                if on_panel:
+                    print(f"[MANOBRA] >>> CENÁRIO A: Placa detectada após curva!")
+                    print(f"[MANOBRA] Continuando na mesma direção...")
+
+                    # Flag indica que é cenário A
+                    self.scenario_b_active = False
+
+                    # Vai direto para andar lateral
+                    self.reposition_step = RepositionStep.MOVING_SIDEWAYS
+                    self.step_start_time = time.time()
+
+                # -------------------------------------------------------------
+                # CENÁRIO B: Saiu completamente da placa
+                # -------------------------------------------------------------
+                else:
+                    print(f"[MANOBRA] >>> CENÁRIO B: Placa NÃO detectada!")
+                    print(f"[MANOBRA] Virando 180° de volta...")
+
+                    # Flag indica que é cenário B
+                    self.scenario_b_active = True
+
+                    # Precisa virar 180° de volta
+                    self.reposition_step = RepositionStep.TURN_180_BACK
+                    self.step_start_time = time.time()
+
+        # =========================================================================
+        # PASSO 3: TURN_180_BACK
+        # Virar 180° de volta (APENAS no Cenário B)
+        # =========================================================================
+        elif self.reposition_step == RepositionStep.TURN_180_BACK:
+            # Vira para o lado OPOSTO (180° = 2x 90°)
+            # Se virou esquerda antes, agora vira direita
+            opposite_dir = (TurnDirection.RIGHT if self.turn_direction == TurnDirection.LEFT 
+                           else TurnDirection.LEFT)
+
+            self._execute_turn(opposite_dir)
+
+            # 180° = duas curvas de 90°
+            if elapsed >= (self.turn_90_time * 2):
+                print(f"[MANOBRA] Giro 180° concluído (agora indo para lado oposto)")
+                self.motors.stop()
+                time.sleep(0.2)
+
+                # Próximo: andar lateral
                 self.reposition_step = RepositionStep.MOVING_SIDEWAYS
                 self.step_start_time = time.time()
-        
+
+        # =========================================================================
+        # PASSO 4: MOVING_SIDEWAYS
+        # Andar largura do robô (ambos os cenários)
+        # =========================================================================
         elif self.reposition_step == RepositionStep.MOVING_SIDEWAYS:
-            # Passo 2: Andando para o lado (largura do robô)
+            # Andar para frente
             self.motors.set_speed(self.search_speed)
             self.motors.move_forward()
-            
+
+            # Verificar se andou tempo suficiente
             if elapsed >= self.sideways_time:
                 print(f"[MANOBRA] Deslocamento lateral concluído")
                 self.motors.stop()
-                time.sleep(0.1)
-                self.reposition_step = RepositionStep.TURNING_90_BACK
+                time.sleep(0.2)
+
+                # Próximo: giro final
+                self.reposition_step = RepositionStep.FINAL_TURN_90
                 self.step_start_time = time.time()
-        
-        elif self.reposition_step == RepositionStep.TURNING_90_BACK:
-            # Passo 3: Virando 90° de volta
-            self._execute_turn(self.turn_direction)
-            
+
+        # =========================================================================
+        # PASSO 5: FINAL_TURN_90
+        # Giro final de 90° (direção depende do cenário)
+        # =========================================================================
+        elif self.reposition_step == RepositionStep.FINAL_TURN_90:
+
+            # -------------------------------------------------------------
+            # DECISÃO: Qual direção girar no giro final?
+            # -------------------------------------------------------------
+            if self.scenario_b_active:
+                # CENÁRIO B: última curva foi para lado oposto
+                # Então gira para esse lado oposto
+                final_dir = (TurnDirection.RIGHT if self.turn_direction == TurnDirection.LEFT 
+                            else TurnDirection.LEFT)
+            else:
+                # CENÁRIO A: mesma direção original
+                final_dir = self.turn_direction
+
+            # Executar giro final
+            self._execute_turn(final_dir)
+
+            # Verificar se completou o giro
             if elapsed >= self.turn_90_time:
-                print(f"[MANOBRA] Curva de retorno concluída ({dir_name})")
+                print(f"[MANOBRA] Giro final concluído")
                 self.motors.stop()
-                time.sleep(0.1)
-                self.reposition_step = RepositionStep.MOVING_FORWARD
-                self.step_start_time = time.time()
-        
-        elif self.reposition_step == RepositionStep.MOVING_FORWARD:
-            # Passo 4: Andando para frente procurando placa
-            self.motors.set_speed(self.search_speed)
-            self.motors.move_forward()
-            
-            # Define um tempo máximo para procurar (ex: 3 segundos)
-            if elapsed >= 3.0:
-                # Não encontrou placa: inverter direção e repetir manobra
-                print(f"[MANOBRA] Placa não encontrada. Invertendo direção...")
-                self.motors.stop()
-                time.sleep(0.1)
-                
-                # Inverter direção
-                if self.turn_direction == TurnDirection.LEFT:
-                    self.turn_direction = TurnDirection.RIGHT
-                    print("[MANOBRA] >>> Próxima tentativa: DIREITA")
+                time.sleep(0.2)
+
+                # ---------------------------------------------------------
+                # ATUALIZAR STATUS DA PRÓXIMA CURVA
+                # ---------------------------------------------------------
+                if not self.scenario_b_active:
+                    # =================================================
+                    # CENÁRIO A: INVERTE direção para próxima vez
+                    # =================================================
+                    if self.turn_direction == TurnDirection.LEFT:
+                        self.turn_direction = TurnDirection.RIGHT
+                        print("[MANOBRA] >>> Status atualizado: Próxima curva = DIREITA")
+                    else:
+                        self.turn_direction = TurnDirection.LEFT
+                        print("[MANOBRA] >>> Status atualizado: Próxima curva = ESQUERDA")
                 else:
-                    self.turn_direction = TurnDirection.LEFT
-                    print("[MANOBRA] >>> Próxima tentativa: ESQUERDA")
-                
-                # Reiniciar manobra
-                self.reposition_step = RepositionStep.TURNING_90
-                self.step_start_time = time.time()
+                    # =================================================
+                    # CENÁRIO B: MANTÉM direção
+                    # =================================================
+                    print(f"[MANOBRA] >>> Status mantido: Próxima curva = {dir_name}")
+
+                # ---------------------------------------------------------
+                # VOLTAR PARA LIMPEZA
+                # ---------------------------------------------------------
+                print("[MANOBRA] Retornando ao modo de limpeza...")
+                self.state = RobotState.MOVING_TO_TARGET
+                self.last_vision_check = 0  # Forçar verificação de visão
     
+    # ==============================================================================
+    # MÉTODO AUXILIAR: _execute_turn()
+    # ==============================================================================
+
+    def _execute_turn(self, direction):
+        """
+        Executa curva na direção especificada.
+
+        Este método é chamado pelos passos da manobra para virar o robô.
+
+        Args:
+            direction: TurnDirection.LEFT ou TurnDirection.RIGHT
+        """
+        # Definir velocidade
+        self.motors.set_speed(self.search_speed)
+
+        # Executar giro
+        if direction == TurnDirection.LEFT:
+            self.motors.turn_left()
+        else:
+            self.motors.turn_right()
+
     def _execute_turn(self, direction):
         """Executa curva na direção especificada"""
         self.motors.set_speed(self.search_speed)
