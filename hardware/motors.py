@@ -5,6 +5,7 @@ Controlador dos motores de locomoção usando driver L298N
 """
 
 import RPi.GPIO as GPIO
+import time
 
 
 class L298NController:
@@ -31,7 +32,7 @@ class L298NController:
         self.pins = motor_pins
         
         # Configurar GPIO
-        GPIO.setmode(GPIO.BOARD)
+        GPIO.setmode(GPIO.BCM)
         GPIO.setwarnings(False)
         
         # Configurar pinos como saída
@@ -47,7 +48,7 @@ class L298NController:
         self.left_pwm.start(0)
         self.right_pwm.start(0)
         
-        self.current_speed = 60
+        self.current_speed = 100
         self.is_running = False
     
     def set_speed(self, speed):
@@ -86,6 +87,7 @@ class L298NController:
         
         self._apply_speed()
         self.is_running = True
+        #time.sleep(2.6) #Delay Manual
     
     def turn_right(self):
         """Gira à direita"""
@@ -96,17 +98,23 @@ class L298NController:
         
         self._apply_speed()
         self.is_running = True
+        #time.sleep(2.6) #Delay Manual
+
     
     def stop(self):
         """Para todos os motores"""
         self.left_pwm.ChangeDutyCycle(0)
         self.right_pwm.ChangeDutyCycle(0)
+        GPIO.output(self.pins['left_motor']['in1'], GPIO.LOW)
+        GPIO.output(self.pins['left_motor']['in2'], GPIO.LOW)
+        GPIO.output(self.pins['right_motor']['in3'], GPIO.LOW)
+        GPIO.output(self.pins['right_motor']['in4'], GPIO.LOW)
         self.is_running = False
     
     def _apply_speed(self):
         """Aplica velocidade atual via PWM"""
         self.left_pwm.ChangeDutyCycle(self.current_speed)
-        self.right_pwm.ChangeDutyCycle(self.current_speed * 0,97) # Ajuste fino para alinhamento para o Motor Direito
+        self.right_pwm.ChangeDutyCycle(self.current_speed)
     
     def cleanup(self):
         """Limpa recursos GPIO"""

@@ -28,7 +28,7 @@ class ServoController:
         self.pin = servo_pin
         
         # Configurar GPIO
-        GPIO.setmode(GPIO.BOARD)
+        GPIO.setmode(GPIO.BCM)
         GPIO.setwarnings(False)
         GPIO.setup(self.pin, GPIO.OUT)
         

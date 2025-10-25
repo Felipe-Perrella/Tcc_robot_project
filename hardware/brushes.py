@@ -26,7 +26,7 @@ class BrushController:
     - Levantar/abaixar via servo motor
     """
     
-    def __init__(self, brush_pins, servo_pin, brush_speed=80):
+    def __init__(self, brush_pins, servo_pin, brush_speed=50):
         """
         Inicializa controlador das vassouras.
         
@@ -43,7 +43,7 @@ class BrushController:
         self.brush_speed = brush_speed
         
         # Configurar GPIO
-        GPIO.setmode(GPIO.BOARD)
+        GPIO.setmode(GPIO.BCM)
         GPIO.setwarnings(False)
         
         # Configurar pinos como saída
@@ -85,8 +85,8 @@ class BrushController:
             
             # 2. Ligar motores
             # Vassoura 1: girar
-            GPIO.output(self.pins['brush_1']['in1'], GPIO.HIGH)
-            GPIO.output(self.pins['brush_1']['in2'], GPIO.LOW)
+            GPIO.output(self.pins['brush_1']['in1'], GPIO.LOW)
+            GPIO.output(self.pins['brush_1']['in2'], GPIO.HIGH)
             
             # Vassoura 2: girar
             GPIO.output(self.pins['brush_2']['in1'], GPIO.HIGH)

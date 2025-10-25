@@ -30,6 +30,7 @@ class UltrasonicSensor:
         self.max_distance = max_distance
         
         # Configurar pinos
+        GPIO.setmode(GPIO.BCM)
         GPIO.setup(self.trigger, GPIO.OUT)
         GPIO.setup(self.echo, GPIO.IN)
         
