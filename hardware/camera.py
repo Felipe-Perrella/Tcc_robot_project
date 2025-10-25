@@ -67,6 +67,9 @@ class CameraVision:
         self.model = None
         self.interpreter = None
         
+        # Contador para modo STUB (quando modelo não carregado)
+        self.stub_call_count = 0
+        
         # Tentar carregar modelo
         self._load_model(model_path)
     
@@ -100,6 +103,7 @@ class CameraVision:
         for ext in extensions:
             print(f"  - {model_path}{ext}")
         print("[CAMERA] Modo STUB ativado")
+        print("[CAMERA] STUB: 2 primeiras chamadas = LIMPA, depois alterna LIMPA/SUJA")
     
     def _load_tflite(self, model_path):
         """Carrega modelo TFLite"""
@@ -199,6 +203,42 @@ class CameraVision:
         
         return img.astype(np.float32)
     
+    def _stub_detection(self):
+        """
+        Modo STUB quando modelo não está carregado.
+        
+        Lógica:
+        - Chamadas 1 e 2: Retorna LIMPA (False)
+        - Chamada 3+: Alterna entre LIMPA e SUJA
+        
+        Returns:
+            bool: True = SUJEIRA, False = LIMPA
+        """
+        self.stub_call_count += 1
+        
+        print(f"[CAMERA] STUB - Verificação #{self.stub_call_count}")
+        
+        # Primeiras 2 chamadas: LIMPA
+        if self.stub_call_count <= 2:
+            print(f"[CAMERA] STUB: Placa limpa (primeiras verificações)")
+            print(f"[CAMERA] Confiança: 0.85 (85%) [SIMULADO]")
+            print(f"[CAMERA] Probs: Clean=0.85, Dusty=0.15 [SIMULADO]")
+            return False
+        
+        # A partir da 3ª chamada: alterna
+        is_dusty = (self.stub_call_count % 2) == 1  # Ímpar = Suja, Par = Limpa
+        
+        if is_dusty:
+            print(f"[CAMERA] STUB: >>> SUJEIRA! <<< [SIMULADO]")
+            print(f"[CAMERA] Confiança: 0.80 (80%) [SIMULADO]")
+            print(f"[CAMERA] Probs: Clean=0.20, Dusty=0.80 [SIMULADO]")
+        else:
+            print(f"[CAMERA] STUB: Placa limpa [SIMULADO]")
+            print(f"[CAMERA] Confiança: 0.85 (85%) [SIMULADO]")
+            print(f"[CAMERA] Probs: Clean=0.85, Dusty=0.15 [SIMULADO]")
+        
+        return is_dusty
+    
     def detect_target(self):
         """
         Detecta sujeira na placa solar.
@@ -208,8 +248,9 @@ class CameraVision:
         Returns:
             bool: True = SUJEIRA, False = LIMPA
         """
+        # Se modelo não está carregado, usa STUB
         if not self.camera_ready:
-            return False
+            return self._stub_detection()
         
         try:
             # 1. Capturar
@@ -379,17 +420,20 @@ if __name__ == "__main__":
     
     if not camera.camera_ready:
         print("\n" + "="*60)
-        print("ERRO: Modelo não carregado!")
+        print("AVISO: Modelo não carregado - usando modo STUB!")
         print("="*60)
         print("\nArquivos procurados:")
         print("  - classificador_placa_solar.tflite")
         print("  - classificador_placa_solar.keras")
         print("  - classificador_placa_solar.h5")
+        print("\nModo STUB ativo:")
+        print("  - Verificações 1-2: LIMPA")
+        print("  - Verificação 3+: Alterna LIMPA/SUJA")
         print("\nSe tem .keras, converta:")
         print("  python3 hardware/camera.py convert classificador_placa_solar.keras")
-        sys.exit(1)
+    else:
+        print(f"\nModelo tipo: {camera.model_type}")
     
-    print(f"\nModelo tipo: {camera.model_type}")
     print(f"Threshold: {camera.confidence_threshold}")
     
     # Menu
